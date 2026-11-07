@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log Viewer: a WikiAgent run</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--dark:#17212A;--gray:#56636C;--lgray:#8E9AA2;--line:#D3DCDB;--bg:#F4F6F5;--card:#E9EEED;
+--model:#6247D6;--modelT:#ECE8FB;--scaf:#0B7473;--scafT:#DDF0EF;--tool:#A86200;--toolT:#FBEAD1;--env:#2B7445;--envT:#E3F1E8;--red:#B23A3A;--redT:#F8E3E3;--hl:#FFD08A}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--dark);font-size:15px}
+header{background:var(--dark);color:#fff;padding:16px 26px}
+header h1{margin:0 0 4px;font-size:22px;font-weight:800}
+header p{margin:0;color:#C9D3D8;font-size:14px;max-width:1100px}
+.summary{display:flex;gap:10px;flex-wrap:wrap;padding:14px 26px 0;max-width:1500px;margin:0 auto}
+.pill{background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:13px}
+.pill b{font-family:'JetBrains Mono',monospace;font-size:14px;display:block}
+.pill.ok b{color:var(--env)}
+main{display:grid;grid-template-columns:420px 1fr;gap:16px;padding:14px 26px 26px;max-width:1500px;margin:0 auto}
+@media(max-width:1000px){main{grid-template-columns:1fr}}
+.panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.label{font-size:11.5px;font-weight:700;letter-spacing:.12em;color:var(--gray);text-transform:uppercase;margin-bottom:8px}
+.filters{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.filters button{font:inherit;font-size:13px;font-weight:600;border:1.5px solid var(--line);background:#fff;border-radius:16px;padding:5px 11px;cursor:pointer}
+.filters button.on{background:var(--dark);color:#fff;border-color:var(--dark)}
+.ev{display:flex;gap:10px;align-items:center;padding:8px 9px;border-radius:10px;cursor:pointer;border:1.5px solid transparent;margin-bottom:4px}
+.ev:hover{background:var(--bg)}
+.ev.sel{border-color:var(--scaf);background:var(--scafT)}
+.ev.bad{background:#FDF1F1}
+.tag{flex:none;font-size:11px;font-weight:700;color:#fff;border-radius:14px;padding:3px 9px;min-width:56px;text-align:center}
+.t-model{background:var(--model)}.t-tool{background:var(--env)}.t-fail{background:var(--red)}.t-solver{background:var(--dark)}.t-done{background:var(--scaf)}
+.ev .txt{font-family:'JetBrains Mono',monospace;font-size:12.5px;flex:1}
+.ev .n{font-size:11.5px;color:var(--lgray)}
+.chat{display:flex;flex-direction:column;gap:6px}
+.msg{display:flex;gap:9px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:6px 9px;font-size:13px;background:#fff}
+.msg.add{border-color:#7CC596;background:#EEF8F1}
+.msg.del{border-color:#E3A3A3;background:#FBEEEE;text-decoration:line-through;color:#9a6a6a}
+.msg .mark{font-family:'JetBrains Mono',monospace;font-weight:700;width:12px;flex:none}
+.role{flex:none;font-size:10.5px;font-weight:700;color:#fff;border-radius:14px;padding:3px 8px;min-width:68px;text-align:center}
+.r-system,.r-user{background:var(--dark)}.r-assistant{background:var(--model)}.r-tool{background:var(--env)}
+.cols{display:grid;grid-template-columns:1fr 300px;gap:14px}
+@media(max-width:1200px){.cols{grid-template-columns:1fr}}
+pre{font-family:'JetBrains Mono',monospace;font-size:12.5px;background:#1C2630;color:#E8EEF0;border-radius:10px;padding:11px 13px;white-space:pre-wrap;margin:0}
+.k{color:#9BE3C9}.s{color:#FFD08A}
+.note{border-radius:10px;padding:10px 12px;font-size:13.5px;line-height:1.45;margin-top:10px}
+.note.w{background:var(--redT);border-left:5px solid var(--red)}
+.note.i{background:var(--scafT);border-left:5px solid var(--scaf)}
+.board{background:var(--envT);border-radius:12px;padding:12px}
+.board .v{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:13px;margin:3px 0 9px}
+.legend{font-size:12px;color:var(--gray);margin:6px 0 10px}
+.legend span{display:inline-block;padding:1px 7px;border-radius:6px;margin-right:6px}
+h3{margin:0 0 4px;font-size:18px}
+.sub{color:var(--gray);font-size:13.5px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Log Viewer · one WikiAgent run</h1>
+  <p>Like the Transcript tab in <code>inspect view</code>: every model call and tool call, in order. Click a <b>model</b> event to see the exact chat it was sent, with <b style="color:#9BE3C9">what was added</b> and <b style="color:#F3A8A8">what was removed</b> since the previous call. Illustrative run modelled on the notebook's WikiAgent (not a real log).</p>
+</header>
+<div class="summary" id="sum"></div>
+<main>
+  <section class="panel">
+    <div class="label">Transcript</div>
+    <div class="filters" id="filters"></div>
+    <div id="events"></div>
+  </section>
+  <section class="panel" id="detail"></section>
+</main>
+<script>
+const SYS="You are a wikipedia-racing AI. Your aim is to reach the goal page by accessing links from a series of wikipedia pages.";
+const ON=p=>`You are currently on page: ${p}. Your goal page is Chandrayaan-3.`;
+const NEXT="What will you do next?";
+const PAGES={Mango:"The mango is an edible stone fruit… cultivated in <link>India</link> for thousands of years… (whole page)",
+ India:"India is a country in South Asia… its space agency, the <link>Indian Space Research Organisation</link>… (whole page)",
+ ISRO:"The Indian Space Research Organisation (ISRO) is… lunar missions include <link>Chandrayaan-3</link>… (whole page)"};
+const M=(role,text,id)=>({role,text,id:id||(role+':'+text)});
+// build the run: track chat, board, events
+let chat=[M('user','""  (empty Sample input)','u0')], cur="Mango", hist=["Mango"], ev=[], calls=0, uid=0;
+const push=m=>{chat.push(m);};
+const snap=()=>chat.map(m=>({...m}));
+ev.push({type:'solver',label:'as_solver(WikiAgent)',board:{cur,hist:[...hist]},note:"Inspect made a TaskState from the empty Sample; as_solver copied its one empty user message into the AgentState."});
+push(M('system',SYS,'sys0')); push(M('user',ON('Mango'),'on0'));
+function model(reply,label){ push(M('user',NEXT,'nx'+(uid++))); calls++; const input=snap();
+  const outMsg = reply.fn? M('assistant',`tool call → ${reply.fn}(${reply.arg||''})`,'a'+(uid++)) : M('assistant',reply.text,'a'+(uid++));
+  ev.push({type:'model',label,input,reply,board:{cur,hist:[...hist]}}); push(outMsg); }
+function tool(fn,arg,result,fail,moveTo){ const t=M('tool',result,'t'+(uid++)); push(t);
+  if(moveTo){cur=moveTo; hist.push(moveTo);}
+  ev.push({type:fail?'fail':'tool',label:`${fn}(${arg||''})`,result,fn,arg,fail,board:{cur,hist:[...hist]}});
+  if(moveTo){ // _reset_history: wipe and restart
+    chat=[]; push(M('system',SYS,'sys'+(uid++))); push(M('user',ON(cur),'on'+(uid++)));
+    ev[ev.length-1].reset=true; }
+}
+model({fn:'GetContentTool',args:'{}'},'→ GetContentTool()');
+tool('GetContentTool','',PAGES.Mango);
+model({fn:'MovePageTool',args:'{"page": "ISRO"}',arg:'page="ISRO"'},'→ MovePageTool(page="ISRO")');
+tool('MovePageTool','page="ISRO"',"Move failed, link not permitted. Remember you can only move to pages wrapped in <link></link> tags…",true);
+model({fn:'MovePageTool',args:'{"page": "India"}',arg:'page="India"'},'→ MovePageTool(page="India")');
+tool('MovePageTool','page="India"',"Move successful",false,"India");
+model({fn:'GetContentTool',args:'{}'},'→ GetContentTool()');
+tool('GetContentTool','',PAGES.India);
+model({fn:'MovePageTool',args:'{"page": "Indian Space Research Organisation"}',arg:'page="Indian Space Research Organisation"'},'→ MovePageTool(page="Indian Space Res…")');
+tool('MovePageTool','page="Indian Space Research Organisation"',"Move successful",false,"Indian Space Research Organisation");
+model({text:"ISRO's page should list its lunar missions. I'll read it first."},'→ text (no tool call)');
+model({fn:'GetContentTool',args:'{}'},'→ GetContentTool()');
+tool('GetContentTool','',PAGES.ISRO);
+model({fn:'MovePageTool',args:'{"page": "Chandrayaan-3"}',arg:'page="Chandrayaan-3"'},'→ MovePageTool(page="Chandrayaan-3")');
+tool('MovePageTool','page="Chandrayaan-3"',"Move successful",false,"Chandrayaan-3");
+ev.push({type:'done',label:'check_win() → True · run ends',board:{cur,hist:[...hist]},note:"The loop asked the board check_win(); WikiGame answered True, so execute() returned the state. as_solver copied it back into the TaskState."});
+
+const tok=t=>t.includes('(whole page)')?4000:Math.ceil(t.length/4);
+const toolCalls=ev.filter(e=>e.type==='tool'||e.type==='fail').length;
+const sentTotal=ev.filter(e=>e.type==='model').reduce((a,e)=>a+e.input.reduce((b,m)=>b+tok(m.text),0),0);
+document.getElementById('sum').innerHTML=[
+ ['status','<span style="color:#2B7445">success</span>','ok'],['model calls',calls],['tool calls',toolCalls],['failed moves',ev.filter(e=>e.type==='fail').length],
+ ['tokens sent (all calls)','≈ '+sentTotal.toLocaleString()],['path',hist.map(h=>h==='Indian Space Research Organisation'?'ISRO':h).join(' → ')]].map(([a,b,c])=>`<div class="pill ${c||''}">${a}<b>${b}</b></div>`).join('');
+
+let filter='all', sel=1;
+const FIL={all:'All',model:'Model calls',tool:'Tool calls',fail:'Failures'};
+document.getElementById('filters').innerHTML=Object.entries(FIL).map(([k,v])=>`<button data-f="${k}" class="${k==='all'?'on':''}">${v}</button>`).join('');
+document.querySelectorAll('#filters button').forEach(b=>b.onclick=()=>{filter=b.dataset.f;document.querySelectorAll('#filters button').forEach(x=>x.classList.toggle('on',x===b));renderList();});
+function renderList(){
+  const box=document.getElementById('events'); box.innerHTML='';
+  let mi=0;
+  ev.forEach((e,i)=>{ if(e.type==='model') mi++;
+    const show = filter==='all' || (filter==='model'&&e.type==='model') || (filter==='tool'&&(e.type==='tool'||e.type==='fail')) || (filter==='fail'&&e.type==='fail');
+    if(!show) return;
+    const tag={model:['model','t-model'],tool:['tool','t-tool'],fail:['tool','t-fail'],solver:['solver','t-solver'],done:['done','t-done']}[e.type];
+    const extra = e.type==='model'? `<span class="n">call ${mi} · ${e.input.length} msgs</span>` : (e.reset?'<span class="n">⟲ chat reset</span>':'');
+    const d=document.createElement('div'); d.className='ev'+(i===sel?' sel':'')+(e.type==='fail'?' bad':'');
+    d.innerHTML=`<span class="tag ${tag[1]}">${tag[0]}</span><span class="txt">${esc(e.label)}</span>${extra}`;
+    d.onclick=()=>{sel=i;renderList();renderDetail();}; box.appendChild(d); });
+}
+function prevModel(i){ for(let j=i-1;j>=0;j--) if(ev[j].type==='model') return ev[j]; return null; }
+function renderDetail(){
+  const e=ev[sel], D=document.getElementById('detail');
+  const board=`<div class="board"><div class="label" style="color:#2B7445">game (WikiGame) at this point</div><div>current_page</div><div class="v">${esc(e.board.cur)}</div><div>page_history</div><div class="v">${e.board.hist.map(h=>esc(h)).join('<br>')}</div><div style="font-size:12.5px;color:#56636C">The board never resets. Only the chat does.</div></div>`;
+  if(e.type==='model'){
+    const p=prevModel(sel), prevIds=new Set(p?p.input.map(m=>m.id):[]), curIds=new Set(e.input.map(m=>m.id));
+    const removed=p?p.input.filter(m=>!curIds.has(m.id)):[];
+    // previous call's reply + tool results also count as "added" (they weren't in the last input)
+    const rows=[...removed.map(m=>({...m,st:'del'})), ...e.input.map(m=>({...m,st:prevIds.has(m.id)?'same':'add'}))];
+    const T=e.input.reduce((a,m)=>a+tok(m.text),0);
+    const json = e.reply.fn? `<span class="k">output.message.tool_calls</span> = [ToolCall(\n  function  = <span class="s">"${e.reply.fn}"</span>,\n  arguments = <span class="s">${esc(e.reply.args)}</span>)]` : `<span class="k">output.message.content</span> = <span class="s">"${esc(e.reply.text)}"</span>\n<span class="k">tool_calls</span> = None`;
+    const wiped = removed.length>2;
+    D.innerHTML=`<h3>Model call · ${esc(e.label)}</h3><div class="sub">The chat sent to gpt-4o-mini, plus the two tool descriptions. ${e.input.length} messages, ≈ ${T.toLocaleString()} tokens.</div>
+    <div class="cols"><div><div class="label">Input: state.messages</div>
+    <div class="legend"><span style="background:#EEF8F1">+ added since the last call</span><span style="background:#FBEEEE">− removed since the last call</span></div>
+    <div class="chat">${rows.map(m=>`<div class="msg ${m.st==='add'?'add':m.st==='del'?'del':''}"><span class="mark">${m.st==='add'?'+':m.st==='del'?'−':''}</span><span class="role r-${m.role}">${m.role}</span><span>${esc(m.text)}</span></div>`).join('')}</div>
+    ${wiped?'<div class="note w"><b>The chat was wiped.</b> A successful move just happened, so _reset_history() threw away everything, including the page text and any plan, and instruction_refresh() wrote a new on-page prompt from the board.</div>':''}
+    ${!p?'<div class="note i"><b>First call.</b> Everything is new: the empty Sample message, then the two prompts _start() wrote, then the nudge.</div>':''}
+    <div class="label" style="margin-top:14px">Output</div><pre>${json}</pre></div><div>${board}</div></div>`;
+  } else if(e.type==='tool'||e.type==='fail'){
+    D.innerHTML=`<h3>Tool call · ${esc(e.label)}</h3><div class="sub">Run by execute_tools() in your Python. Not a model call: it costs no tokens.</div>
+    <div class="cols"><div><div class="label">Result (becomes a tool message)</div><pre>${esc(e.result)}</pre>
+    ${e.fail?'<div class="note w"><b>Failed move.</b> “ISRO” isn\'t the exact title of a link on Mango. The board didn\'t move, and there is no reset, so the failure stays in the chat for the next call.</div>':''}
+    ${e.reset?'<div class="note i"><b>Successful move.</b> MovePageTool moved the board. Your scaffold then rebuilt the prompts and wiped the chat. Click the next model call to see the effect.</div>':''}
+    ${e.fn==='GetContentTool'?'<div class="note i"><b>A read, not a move.</b> The whole page goes into the chat (≈ 4,000 tokens) and is re-sent on every call until the next wipe.</div>':''}
+    </div><div>${board}</div></div>`;
+  } else {
+    D.innerHTML=`<h3>${esc(e.label)}</h3><div class="sub">${esc(e.note)}</div>${board}`;
+  }
+}
+function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+renderList(); renderDetail();
+</script>
+</body>
+</html>

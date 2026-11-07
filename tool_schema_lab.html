@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tool Schema Lab</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--dark:#17212A;--gray:#56636C;--line:#D3DCDB;--bg:#F4F6F5;--card:#E9EEED;--tool:#A86200;--toolT:#FBEAD1;--model:#6247D6;--modelT:#ECE8FB;
+--env:#2B7445;--envT:#E3F1E8;--red:#B23A3A;--redT:#F8E3E3;--hl:#FFD08A;--blue:#2F5DA8;--blueT:#E4ECF8}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--dark)}
+header{background:var(--dark);color:#fff;padding:18px 28px}
+header h1{margin:0 0 4px;font-size:24px;font-weight:800}
+header p{margin:0;color:#C9D3D8;font-size:15px;max-width:1000px}
+.presets{display:flex;gap:8px;flex-wrap:wrap;padding:14px 28px 0;max-width:1500px;margin:0 auto}
+.presets button{font:inherit;font-size:14px;font-weight:600;border:1.5px solid var(--line);background:#fff;border-radius:20px;padding:7px 14px;cursor:pointer}
+.presets button.on{background:var(--tool);border-color:var(--tool);color:#fff}
+main{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:14px 28px 28px;max-width:1500px;margin:0 auto}
+@media(max-width:1000px){main{grid-template-columns:1fr}}
+.panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.label{font-size:12px;font-weight:700;letter-spacing:.12em;color:var(--gray);text-transform:uppercase;margin-bottom:8px;display:flex;justify-content:space-between}
+textarea{width:100%;height:470px;font-family:'JetBrains Mono',monospace;font-size:14px;line-height:1.5;background:#1C2630;color:#E8EEF0;border:0;border-radius:10px;padding:14px;resize:vertical;tab-size:4}
+pre{font-family:'JetBrains Mono',monospace;font-size:13.5px;line-height:1.5;background:#1C2630;color:#E8EEF0;border-radius:10px;padding:14px;margin:0;white-space:pre-wrap;min-height:120px}
+.k{color:#9BE3C9}.s{color:#FFD08A}.dim{color:#8FA3AE}
+.checks{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.chk{border-radius:10px;padding:10px 12px;font-size:14.5px;line-height:1.45;border-left:6px solid}
+.chk.err{background:var(--redT);border-color:var(--red)}
+.chk.warn{background:var(--toolT);border-color:var(--tool)}
+.chk.ok{background:var(--envT);border-color:var(--env)}
+.chk.tip{background:var(--blueT);border-color:var(--blue)}
+.chk b{display:block;margin-bottom:2px}
+.map{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.map div{background:var(--card);border-radius:10px;padding:8px 10px;font-size:13px}
+.map b{display:block;font-size:12px;color:var(--tool);letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px}
+.eye{margin-top:14px;background:var(--modelT);border-radius:12px;padding:12px 14px;font-size:14.5px;line-height:1.5}
+.eye b{color:var(--model)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tool Schema Lab</h1>
+  <p>The model never sees your Python. Inspect turns the tool's <b>name</b>, <b>type hints</b> and <b>docstring</b> into a JSON description, and that's the model's only manual. Edit the code on the left and watch what the model receives, and what breaks.</p>
+</header>
+<div class="presets" id="presets"></div>
+<main>
+  <section class="panel">
+    <div class="label"><span>What you write (Python)</span><span id="lines"></span></div>
+    <textarea id="src" spellcheck="false"></textarea>
+    <div class="map">
+      <div><b>name</b>outer function</div><div><b>description</b>docstring, first paragraph</div><div><b>type</b>type hints</div><div><b>arg description</b>its Args: line</div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="label"><span>What the model receives (JSON)</span><span id="tokc"></span></div>
+    <pre id="out"></pre>
+    <div class="checks" id="checks"></div>
+    <div class="eye" id="eye"></div>
+  </section>
+</main>
+<script>
+const PRESETS={
+"calculate":`@tool
+def calculate():
+    async def execute(expression: str) -> str:
+        """
+        A calculator that can evaluate arithmetic expressions. The input is a mathematical expression, as a string, and the output is the result of the calculation.
+
+        Args:
+            expression: the arithmetic expression to evaluate.
+
+        Returns:
+            The result of the calculation, as a string. Or error if the expression is invalid.
+        """
+        return str(evaluate_expression(expression))
+
+    return execute`,
+"MovePageTool":`@tool
+def MovePageTool(game: WikiGame) -> Tool:
+    async def execute(page: str) -> str:
+        """
+        Move to a new wikipedia page by clicking on a link in the current page content. Modifies the game state in place.
+
+        Args:
+            page: The title of the page you want to move to. This must be accessible from the current page (and be a different page), or the move will fail.
+
+        Returns:
+            str: A message indicating whether the move was successful
+        """
+        ...
+    return execute`,
+"GetContentTool":`@tool
+def GetContentTool(game: WikiGame) -> Tool:
+    async def execute() -> str:
+        """
+        Get all the content for the wikipedia page you are currently on. Anything which corresponds to a link is wrapped in <link></link> tags.
+
+        Args:
+            None
+
+        Returns:
+            str: The content of the page with any accessible links wrapped in <link></link> tags
+        """
+        ...
+    return execute`,
+"TestPathTool":`@tool
+def TestPathTool(game: WikiGame) -> Tool:
+    async def execute(path: str) -> str:
+        """
+        Test a path of wikipedia pages to see if it leads to the goal page. The path should be a series of page titles separated by '->'.
+
+        Args:
+            path (str): The path to test formatted as a series of wikipedia page titles separated by '->'. The path must start with the current page title. The path doesn't have to end with the goal page title.
+
+        Returns:
+            str: The result of the test. Success if the path leads to the goal page. Otherwise returns failure, and where the path failed.
+        """
+        ...
+    return execute`,
+"🐞 Broken: no Args line":`@tool
+def MovePageTool(game: WikiGame) -> Tool:
+    async def execute(page: str) -> str:
+        """
+        Move to a new page.
+        """
+        ...
+    return execute`,
+"🐞 Broken: no type hint":`@tool
+def calculate():
+    async def execute(expression):
+        """
+        Calculator.
+
+        Args:
+            expression: the expression.
+        """
+        ...
+    return execute`,
+"🐞 Vague manual":`@tool
+def move():
+    async def execute(p: str, force: bool) -> str:
+        """
+        Moves.
+
+        Args:
+            p: page
+            force: force it
+            speed: how fast
+        """
+        ...
+    return execute`
+};
+const TY={str:"string",int:"integer",float:"number",bool:"boolean",list:"array","list[str]":"array",dict:"object"};
+function parse(src){
+  const r={errors:[],warns:[],tips:[],oks:[]};
+  if(!/^\s*@tool/m.test(src)) r.errors.push(["No @tool decorator","Without @tool, Inspect doesn't register it as a tool at all."]);
+  const outer=src.match(/@tool\s*\n\s*def\s+(\w+)\s*\(/); r.name=outer?outer[1]:null;
+  const ex=src.match(/async\s+def\s+execute\s*\(([^)]*)\)/); const exSync=!ex && src.match(/def\s+execute\s*\(([^)]*)\)/);
+  if(!ex && !exSync){ r.errors.push(["No execute() inside","The outer function must define and return an inner execute function."]); return r; }
+  if(exSync) r.warns.push(["execute isn't async","The notebook writes async def execute(...). Inspect awaits tool calls."]);
+  const params=((ex||exSync)[1]).split(',').map(s=>s.trim()).filter(Boolean).filter(p=>p!=='self');
+  r.params=params.map(p=>{const m=p.match(/^(\w+)\s*(?::\s*([\w\[\], ]+))?\s*(?:=\s*(.+))?$/); return m?{name:m[1],type:m[2]?m[2].trim():null,def:m[3]}:{name:p,type:null};});
+  const doc=src.match(/"""([\s\S]*?)"""/); const d=doc?doc[1]:"";
+  if(!doc) r.errors.push(["No docstring","The model would get no description at all. Inspect needs the docstring."]);
+  const lines=d.split('\n').map(l=>l.replace(/^\s{0,12}/,''));
+  const txt=d.trim(); const firstPara=txt.split(/\n\s*\n/)[0]||""; const desc=firstPara.replace(/\s+/g,' ').trim();
+  r.desc=/^Args:/.test(desc)?"":desc;
+  const argsBlock=(d.match(/Args:\s*\n([\s\S]*?)(\n\s*\n|\n\s*Returns:|$)/)||[])[1]||"";
+  r.argdesc={}; argsBlock.split('\n').forEach(l=>{const m=l.match(/^\s*(\w+)\s*(?:\(([^)]*)\))?\s*:\s*(.*)$/); if(m) r.argdesc[m[1]]=m[3].trim();});
+  // checks
+  r.params.forEach(p=>{
+    if(!p.type) r.errors.push([`No type hint on “${p.name}”`,`Inspect reads the type from the hint (e.g. ${p.name}: str). Without it, it can't build the schema.`]);
+    if(!(p.name in r.argdesc)) r.errors.push([`No Args: line for “${p.name}”`,`Inspect raises ValueError: Description not provided for parameter: ${p.name}.`]);
+    else if(r.argdesc[p.name].split(' ').length<4) r.warns.push([`“${p.name}” is barely described`,`“${r.argdesc[p.name]}” leaves the model guessing what to send. Say what it means and what valid values look like.`]);
+  });
+  Object.keys(r.argdesc).forEach(a=>{ if(a!=='None' && !r.params.find(p=>p.name===a)) r.warns.push([`Args mentions “${a}”, which isn't a parameter`,"The model is never told about it: only execute's real parameters go into the schema."]); });
+  if(!r.desc) r.errors.push(["Empty description","The first paragraph of the docstring is the tool's description. Here there is none."]);
+  else { const sents=(r.desc.match(/[.!?](\s|$)/g)||[]).length; if(sents<3) r.tips.push(["Short manual",`${sents||1} sentence${sents===1?'':'s'}. Anthropic's tool-use guide suggests 3–4: what it does, when to use it (and not), what each argument means, caveats.`]); }
+  const outerArgs=(src.match(/@tool\s*\n\s*def\s+\w+\s*\(([^)]*)\)/)||[])[1]||"";
+  if(outerArgs.trim()) r.oks.push([`“${outerArgs.split(':')[0].trim()}” stays hidden`,"Outer-function arguments (like game) are fixed when you build the tool. The model never sees them."]);
+  if(!r.errors.length) r.oks.push(["Inspect can build this tool","Every parameter has a type hint and an Args: line."]);
+  return r;
+}
+function esc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function render(){
+  const src=document.getElementById('src').value; const r=parse(src);
+  document.getElementById('lines').textContent=src.split('\n').length+' lines';
+  const out=document.getElementById('out');
+  if(!r.params){ out.innerHTML='<span class="dim">(nothing Inspect can turn into a tool)</span>'; }
+  else{
+    const props=r.params.map(p=>`      <span class="k">"${esc(p.name)}"</span>: {\n        "type": <span class="s">"${p.type?(TY[p.type]||p.type):'???'}"</span>,\n        "description": <span class="s">"${esc(r.argdesc[p.name]||'⚠ missing')}"</span>\n      }`).join(',\n');
+    const json=`{\n  "type": "function",\n  "function": {\n    "name": <span class="s">"${esc(r.name||'?')}"</span>,\n    "description": <span class="s">"${esc(r.desc||'⚠ missing')}"</span>,\n    "parameters": {\n      "type": "object",\n      "properties": {\n${props||'        <span class="dim">(no arguments)</span>'}\n      },\n      "required": [${r.params.filter(p=>!p.def).map(p=>'<span class="s">"'+esc(p.name)+'"</span>').join(', ')}]\n    }\n  }\n}`;
+    out.innerHTML=json;
+    const plain=out.textContent; document.getElementById('tokc').textContent='≈ '+Math.ceil(plain.length/4)+' tokens, sent on every call';
+  }
+  const c=document.getElementById('checks'); c.innerHTML='';
+  r.errors.forEach(([h,b])=>c.insertAdjacentHTML('beforeend',`<div class="chk err"><b>✗ ${esc(h)}</b>${esc(b)}</div>`));
+  r.warns.forEach(([h,b])=>c.insertAdjacentHTML('beforeend',`<div class="chk warn"><b>! ${esc(h)}</b>${esc(b)}</div>`));
+  r.tips.forEach(([h,b])=>c.insertAdjacentHTML('beforeend',`<div class="chk tip"><b>💡 ${esc(h)}</b>${esc(b)}</div>`));
+  r.oks.forEach(([h,b])=>c.insertAdjacentHTML('beforeend',`<div class="chk ok"><b>✓ ${esc(h)}</b>${esc(b)}</div>`));
+  const call = r.params && r.name ? `${r.name}(${r.params.map(p=>`${p.name}=…`).join(', ')})` : '…';
+  document.getElementById('eye').innerHTML = `<b>The model's eye view:</b> it can only write <code>${esc(call)}</code>, using the words above to decide when and how. ${r.params&&r.params.some(p=>!(p.name in r.argdesc))?'Right now it has no idea what some arguments mean.':'Change a word in the docstring and you have changed the model\'s instructions.'}`;
+}
+const pb=document.getElementById('presets');
+Object.keys(PRESETS).forEach((k,i)=>{const b=document.createElement('button'); b.textContent=k; b.onclick=()=>{document.getElementById('src').value=PRESETS[k]; [...pb.children].forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();}; pb.appendChild(b); if(i===1){b.classList.add('on');}});
+document.getElementById('src').value=PRESETS.MovePageTool;
+document.getElementById('src').addEventListener('input',render);
+document.getElementById('src').addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();const t=e.target,s=t.selectionStart;t.value=t.value.slice(0,s)+'    '+t.value.slice(t.selectionEnd);t.selectionStart=t.selectionEnd=s+4;render();}});
+render();
+</script>
+</body>
+</html>

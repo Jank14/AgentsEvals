@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Budget</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--dark:#17212A;--gray:#56636C;--lgray:#8E9AA2;--line:#D3DCDB;--bg:#F4F6F5;--card:#E9EEED;
+--reset:#B23A3A;--all:#A86200;--hist:#2B7445;--model:#6247D6;--hl:#FFD08A}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--dark)}
+header{background:var(--dark);color:#fff;padding:18px 28px}
+header h1{margin:0 0 4px;font-size:24px;font-weight:800}
+header p{margin:0;color:#C9D3D8;font-size:15px;max-width:980px}
+main{max-width:1400px;margin:0 auto;padding:18px 28px;display:grid;grid-template-columns:320px 1fr;gap:18px}
+@media(max-width:950px){main{grid-template-columns:1fr}}
+.panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.label{font-size:12px;font-weight:700;letter-spacing:.12em;color:var(--gray);text-transform:uppercase;margin-bottom:8px}
+.ctl{margin-bottom:18px}
+.ctl .row{display:flex;justify-content:space-between;font-weight:600;font-size:15px;margin-bottom:6px}
+.ctl .row span:last-child{font-family:'JetBrains Mono',monospace;color:var(--model)}
+input[type=range]{width:100%;accent-color:var(--model)}
+.hint{font-size:13px;color:var(--gray);line-height:1.4;margin-top:4px}
+.toggles label{display:flex;gap:8px;align-items:center;font-size:15px;margin:6px 0;cursor:pointer}
+.sw{width:14px;height:14px;border-radius:4px;display:inline-block}
+canvas{width:100%;height:380px;display:block}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
+@media(max-width:800px){.cards{grid-template-columns:1fr}}
+.c{border-radius:12px;padding:12px 14px;border:2px solid}
+.c h3{margin:0 0 2px;font-size:16px}
+.c .nb{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--gray)}
+.c .big{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;margin:8px 0 2px}
+.c .sm{font-size:13px;color:var(--gray)}
+.mem{margin-top:10px;font-size:14px;line-height:1.6}
+.mem .y{color:#2B7445;font-weight:700}.mem .n{color:#B23A3A;font-weight:700}
+.bar{height:10px;border-radius:6px;background:var(--card);overflow:hidden;margin-top:6px}
+.bar div{height:100%}
+.insight{margin-top:14px;background:var(--dark);color:#fff;border-radius:12px;padding:14px 16px;font-size:15px;line-height:1.5}
+.insight b{color:var(--hl)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Context Budget</h1>
+  <p>Every model call re-sends the <b>whole chat</b>. Move the sliders to see how big that chat gets across a WikiGame run, for each way of handling history, and what each version still remembers.</p>
+</header>
+<main>
+  <aside class="panel">
+    <div class="ctl"><div class="row"><span>Move number</span><span id="mv_v"></span></div><input id="mv" type="range" min="1" max="30" value="10"><div class="hint">Where to look on the chart. Each move = read the page, then click a link (2 model calls).</div></div>
+    <div class="ctl"><div class="row"><span>Tokens per page</span><span id="pg_v"></span></div><input id="pg" type="range" min="1000" max="16000" step="500" value="6000"><div class="hint">A short article ≈ 2k. “United States” is ~10k words ≈ 13k tokens.</div></div>
+    <div class="ctl"><div class="row"><span>Context window</span><span id="cw_v"></span></div><input id="cw" type="range" min="16000" max="200000" step="4000" value="128000"><div class="hint">gpt-4o-mini: 128k tokens.</div></div>
+    <div class="ctl"><div class="row"><span>Failed moves per page</span><span id="fm_v"></span></div><input id="fm" type="range" min="0" max="3" value="1"><div class="hint">Each failed MovePageTool adds a call and a message.</div></div>
+    <div class="label">Show</div>
+    <div class="toggles">
+      <label><input type="checkbox" id="t0" checked><span class="sw" style="background:var(--reset)"></span>Reset every move <span class="hint">(WikiAgent)</span></label>
+      <label><input type="checkbox" id="t1" checked><span class="sw" style="background:var(--all)"></span>Keep everything</label>
+      <label><input type="checkbox" id="t2" checked><span class="sw" style="background:var(--hist)"></span>Keep history, drop old pages <span class="hint">(WikiAgentHistory)</span></label>
+    </div>
+  </aside>
+  <section>
+    <div class="panel">
+      <div class="label">Chat size sent on each model call (tokens)</div>
+      <canvas id="ch"></canvas>
+      <div class="cards" id="cards"></div>
+      <div class="insight" id="ins"></div>
+    </div>
+  </section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const SYS=60, ONP=60, NEXT=15, A_GET=12, A_MOVE=18, OK=6, FAIL=40, PLACE=25, THOUGHT=45;
+// build a per-call series for each strategy
+function simulate(P, moves, fails){
+  const S={reset:[],all:[],hist:[]}; const tot={reset:0,all:0,hist:0};
+  let ctxAll=SYS+ONP, ctxHist=SYS+ONP;
+  for(let m=1;m<=moves;m++){
+    // reset: chat restarts each move
+    let ctxR=SYS+ONP;
+    const calls=[];
+    // call 1: decide to read
+    calls.push('read');
+    for(let f=0;f<fails;f++) calls.push('fail');
+    calls.push('move');
+    // reset strategy
+    let r=ctxR;
+    r+=NEXT; S.reset.push({m,v:r}); tot.reset+=r; r+=A_GET+P;
+    for(let f=0;f<fails;f++){ r+=NEXT; S.reset.push({m,v:r}); tot.reset+=r; r+=A_MOVE+FAIL; }
+    r+=NEXT; S.reset.push({m,v:r}); tot.reset+=r;
+    // keep all
+    let a=ctxAll;
+    a+=NEXT; S.all.push({m,v:a}); tot.all+=a; a+=A_GET+P;
+    for(let f=0;f<fails;f++){ a+=NEXT; S.all.push({m,v:a}); tot.all+=a; a+=A_MOVE+FAIL; }
+    a+=NEXT; S.all.push({m,v:a}); tot.all+=a; a+=A_MOVE+OK;
+    ctxAll=a;
+    // keep history, drop old page text (page replaced by placeholder after the move)
+    let h=ctxHist;
+    h+=NEXT; S.hist.push({m,v:h}); tot.hist+=h; h+=A_GET+P;
+    for(let f=0;f<fails;f++){ h+=NEXT; S.hist.push({m,v:h}); tot.hist+=h; h+=A_MOVE+FAIL; }
+    h+=NEXT; S.hist.push({m,v:h}); tot.hist+=h; h+=A_MOVE+OK;
+    ctxHist=h-P+PLACE;
+  }
+  return {S,tot};
+}
+const COL={reset:getComputedStyle(document.documentElement).getPropertyValue('--reset').trim(),all:'#A86200',hist:'#2B7445'};
+const NAMES={reset:"Reset every move",all:"Keep everything",hist:"Keep history, drop old pages"};
+function draw(){
+  const P=+$('pg').value, M=+$('mv').value, CW=+$('cw').value, F=+$('fm').value, MAX=30;
+  $('mv_v').textContent=M; $('pg_v').textContent=P.toLocaleString(); $('cw_v').textContent=(CW/1000)+'k'; $('fm_v').textContent=F;
+  const {S}=simulate(P,MAX,F); const cur=simulate(P,M,F);
+  const cv=$('ch'), dpr=window.devicePixelRatio||1, W=cv.clientWidth, H=cv.clientHeight; cv.width=W*dpr; cv.height=H*dpr;
+  const g=cv.getContext('2d'); g.scale(dpr,dpr); g.clearRect(0,0,W,H);
+  const L=64,R=16,T=14,B=34; const n=S.all.length;
+  const ymax=Math.max(CW*1.15, ...S.all.map(p=>p.v).filter((v,i)=>S.all[i].m<=MAX))*1.0;
+  const yTop=Math.min(ymax, CW*2.2);
+  const X=i=>L+(W-L-R)*i/(n-1), Y=v=>T+(H-T-B)*(1-Math.min(v,yTop)/yTop);
+  g.font='12px Inter'; g.fillStyle='#8E9AA2'; g.strokeStyle='#E9EEED'; g.lineWidth=1;
+  for(let k=0;k<=4;k++){const v=yTop*k/4; const y=Y(v); g.beginPath(); g.moveTo(L,y); g.lineTo(W-R,y); g.stroke(); g.fillText((v/1000).toFixed(0)+'k',8,y+4);}
+  // x labels by move
+  const perMove=n/MAX;
+  for(let m=0;m<=MAX;m+=5){ g.fillText('move '+m, X(Math.max(0,m*perMove-1))-18, H-10); }
+  // context window line
+  g.strokeStyle='#17212A'; g.setLineDash([6,5]); g.lineWidth=1.5; g.beginPath(); g.moveTo(L,Y(CW)); g.lineTo(W-R,Y(CW)); g.stroke(); g.setLineDash([]);
+  g.fillStyle='#17212A'; g.font='bold 12px Inter'; g.fillText('context window '+(CW/1000)+'k', W-R-150, Y(CW)-6);
+  // current move marker
+  const cx=X(Math.min(n-1,M*perMove-1)); g.fillStyle='rgba(98,71,214,.08)'; g.fillRect(L, T, cx-L, H-T-B);
+  g.strokeStyle='#6247D6'; g.lineWidth=1.5; g.beginPath(); g.moveTo(cx,T); g.lineTo(cx,H-B); g.stroke();
+  ['reset','all','hist'].forEach((k,ix)=>{ if(!$('t'+ix).checked) return;
+    g.strokeStyle=COL[k]; g.lineWidth=2.5; g.beginPath(); S[k].forEach((p,i)=>{const x=X(i), y=Y(p.v); i?g.lineTo(x,y):g.moveTo(x,y);}); g.stroke();
+    // overflow marker
+    const over=S[k].findIndex(p=>p.v>CW); if(over>=0){ g.fillStyle=COL[k]; g.beginPath(); g.arc(X(over),Y(CW),6,0,7); g.fill(); }
+  });
+  // cards
+  const cards=$('cards'); cards.innerHTML='';
+  const nb={reset:"WikiAgent",all:"(no notebook class)",hist:"WikiAgentHistory"};
+  const mem={reset:[["the plan it made earlier",0],["its failed moves",0],["the path so far","only via the prompt"]],
+             all:[["the plan it made earlier",1],["its failed moves",1],["every page it read",1]],
+             hist:[["the plan it made earlier",1],["its failed moves",1],["old pages' text",0]]};
+  ['reset','all','hist'].forEach(k=>{
+    const last=cur.S[k][cur.S[k].length-1].v, over=S[k].find(p=>p.v>CW);
+    const pct=Math.min(100,100*last/CW);
+    cards.insertAdjacentHTML('beforeend',`<div class="c" style="border-color:${COL[k]}"><h3 style="color:${COL[k]}">${NAMES[k]}</h3><div class="nb">${nb[k]}</div>
+     <div class="big">${last.toLocaleString()}</div><div class="sm">tokens in the chat at move ${M}</div>
+     <div class="bar"><div style="width:${pct}%;background:${COL[k]}"></div></div>
+     <div class="sm" style="margin-top:6px">${over?'<b style="color:#B23A3A">overflows at move '+over.m+'</b>':'never overflows in 30 moves'}</div>
+     <div class="sm">total sent so far: <b>${(cur.tot[k]/1000).toFixed(0)}k</b> tokens</div>
+     <div class="mem">${mem[k].map(([t,v])=>`<div><span class="${v===1?'y':(v===0?'n':'')}">${v===1?'✓':(v===0?'✗':'~')}</span> ${t}${typeof v==='string'?' ('+v+')':''}</div>`).join('')}</div></div>`);
+  });
+  const ratio=(cur.tot.all/cur.tot.hist).toFixed(1);
+  const ovA=S.all.find(p=>p.v>CW);
+  $('ins').innerHTML=`<b>What to notice:</b> “Keep everything” ${ovA?'hits the '+(CW/1000)+'k window at move '+ovA.m:'grows without limit'}, and because every call re-sends the whole chat, by move ${M} it has sent <b>${ratio}×</b> the tokens of the trimmed history. Resetting is cheapest, but it forgets its own plan and its failed clicks: that's why WikiAgent walks in circles. Dropping only old page text keeps the memory and the bill small.`;
+}
+['mv','pg','cw','fm','t0','t1','t2'].forEach(id=>$(id).addEventListener('input',draw));
+window.addEventListener('resize',draw); draw();
+</script>
+</body>
+</html>
